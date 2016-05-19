@@ -45,3 +45,51 @@
    :c #{:f}
    :d #{:f}
    :e #{:f}})
+
+
+;; For converting a graph of functions to a graph of symbols
+
+(defn get-name
+  [form]
+  `(:name (meta (var ~form))))
+
+(defn sym-seq [form]
+  (if (nil? (first form))
+    nil
+    `(cons ~(get-name (first form))
+           ~(sym-seq (rest form)))))
+
+(defn sym-m-entry [[k v]]
+  (let [fi (gensym)
+        re (gensym)]
+    `(let [~fi ~(get-name k)
+           ~re ~(sym-seq v)]
+       [~fi (set ~re)])))
+
+(defn map-sym [form]
+  (if (empty? form)
+    nil
+    `(cons ~(sym-m-entry (first form))
+           ~(map-sym (rest form)))))
+
+(defmacro symbol-map [form] `(into {} ~(map-sym form)))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

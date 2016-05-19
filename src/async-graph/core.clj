@@ -210,11 +210,8 @@
                 (dissoc xf))
         ;; find the children of the node with no other parents
         ;; (some children of xf might also be children of remaining nodes)
-        orphans (filter #(no-parent? g'  %) (get g xf))]
+        children-g' (apply union (vals g'))
+        orphans (filter #(empty? (intersection children-g' #{%})) (get g xf))]
     [(apply dissoc g' orphans) (apply dissoc ch' orphans)]))
 
-(defn in-channels
-  "Returns the roots of the graph in the form of a map of transducers to their
-   core.async channels"
-  [g]
-  ())
+
