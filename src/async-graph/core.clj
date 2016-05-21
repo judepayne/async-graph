@@ -15,6 +15,13 @@
 
 (def default-buffer 10)
 
+(defn- make-chan
+  "Creates a channel for the transducer xf and with the buffer buf. If the transducer
+   carries :buf metadata, that values overrides buf."
+  [buf xf]
+  (if-let [meta-buf (:buf (meta xf))]
+    (chan meta-buf xf)
+    (chan buf xf)))
 
 (defn graph-channels
   "From a graph of transducers creates a series of core.async channels which
@@ -22,7 +29,7 @@
    to a vec of its created [in-channel out-channel] where out-channel is a mult.
    g is assumed to be pre-normalised"
   [g buf]
-  (let [chls (into {} (map (fn [[k v]] [k (chan buf k)]) g))
+  (let [chls (into {} (map (fn [[k v]] [k (make-chan buf k)]) g))
         ;; create the mults. leaves don't need mults
         mlts (into {} (map (fn [[k v]] [k (mult v)]) (apply dissoc chls (leaves g))))
         es (edges g)]
@@ -92,9 +99,7 @@
     (into {} (map (fn [r] [r (:channel (get channels r))]) (roots graph))))
   (outs [_]
     (into {} (map (fn [l] [l (:channel (get channels l))]) (leaves graph))))
-  
   )
-    
 
 (defn async-graph
   "Returns an instance of AsyncGraph given a graph of transducers, g and optionally
@@ -104,7 +109,11 @@
    {xf1 #{xf2 xf3}
     xf2 #{xf3}
    i.e. a map of nodes to set of children. leaf nodes, e.g. xf3 #{} needn't be specified.
-   The graph g must not have any cycles."
+   The graph g must not have any cycles.
+   A transducer node may optional have metadata tags :buf-or-n <core.async buffer or integer>
+   and :ex-handler <an error handling function or arity 1> which override the defaults. See
+   tansducer macro in this file. Also see core.async documentation for chan:
+   https://clojure.github.io/core.async/index.html#clojure.core.async/chan"
    
   [g & {:keys [buffer]
           :or {buffer default-buffer}}]
@@ -145,14 +154,13 @@
   [chls nodes node]
   (doseq [p nodes] (untap (out-chan chls p) (in-chan chls node))))
 
-
 (defn- graph-add-node
   "Creates a core.async channel with the transducer xf and buffer buf applied.
    Asssociates the new 'node' into g, the existing graph of transducers and ch, the
    existing map of transducers to their in and out channels."
   [g ch xf children buf]
   (let [g'  (assoc g xf children)
-        in  (chan buf xf)
+        in  (make-chan buf xf)
         io  {:channel in :mult (if (empty? children) nil (mult in))}
         ch' (assoc ch xf io)]
     [g' ch']))
@@ -190,7 +198,7 @@
   "Dissociates k from the graph. Fully orphaned children of k are also dissoc'd.
   Any parents of k that become leaves in the graph are recreated without a mult channel.
    Returns a 2-vector of new graphof transducers, new map of channels - i.e. the new data structure.
-   Note: assoc'ing a node and then dissoc'ing it usually won't result in the original graph"
+   Note: assoc'ing a node and then dissoc'ing it usually won't result in the original graph!"
   [g ch xf buf]
   (let [prnts (parents g xf)
         ;; remove xf from the children of each of its parents &
@@ -205,7 +213,7 @@
         ;; dissoc xf from channels
         ch' (-> (merge ch
                        (into {}
-                             (map (fn [p] [p {:channel (chan buf p) :mult nil}])
+                             (map (fn [p] [p {:channel (make-chan buf p) :mult nil}])
                                   prnts-now-leaves)))
                 (dissoc xf))
         ;; find the children of the node with no other parents
@@ -215,3 +223,15 @@
     [(apply dissoc g' orphans) (apply dissoc ch' orphans)]))
 
 
+(defmacro transducer
+  "A convenience macro for defining a transducer function. the-name is the
+   name of the var bound to the transducer function, xform. props is a series
+   of key values which are copied into the metadata of the function.
+   :buf-or-n and ex-handler props are used in the construction of the core.async
+   channel when an AsyncGraph is created or assoc'd into.
+  
+   Ex. Usage: (transducer f1 (map inc) :buf-or-n 15 :ex-handler (fn [n] n))
+              (assoc my-g f1 #{f2 f3})
+   Note: Not to be used nested inside an assoc."
+  [the-name xform & props]
+  `(def ~the-name (with-meta ~xform ~(into {} (map vec (partition 2 props))))))

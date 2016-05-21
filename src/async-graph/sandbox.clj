@@ -22,12 +22,17 @@
   )
 
 
-(def f1 (map #(str % "f1->")))
+(def f9 (with-meta (map #(str % "f9->")) {:buf 12})) ;; it works!
+
+
+
+(def f1 (with-meta (map #(str % "f1->")) {:buf-or-n 12}))
 (def f2 (map #(str % "f2->")))
 (def f3 (map #(str % "f3->")))
 (def f4 (map #(str % "f4->")))
 (def f5 (map #(str % "f5->")))
-(def f6 (map #(str % "f6->")))
+(def f6 (with-meta (map #(str % "f6->")) {:buf-or-n 15}))
+
 
 (def g
   {f1 #{f3 f4}
