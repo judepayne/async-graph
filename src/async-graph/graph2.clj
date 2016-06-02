@@ -111,6 +111,76 @@
     #{}
     g)))
 
+
+(defn dfs
+  "Depth first search on g starting at node s. If :undirected? is set as true,
+   will treat the graph as undirected rather than a dag and so will discover all nodes."
+  [g s & {:keys [undirected?] :or [undirected? false]}]
+  (let [neighbor-fn
+        (if undirected?
+          (fn [n] (union (access (g n)) (parents-of g n)))
+          (fn [n] (access (g n))))]
+    (loop [vertices [] explored #{s} frontier [s]]
+      (if (empty? frontier)
+        vertices
+        (let [v (peek frontier)
+              neighbors (neighbor-fn v)]
+          (recur
+           (conj vertices v)
+           (into explored neighbors)
+           (into (pop frontier) (remove explored neighbors))))))))
+
+(defn bfs
+  "Breadth first search on g starting at node s. If :undirected? is set as true,
+   will treat the graph as undirected rather than a dag and so will discover all nodes."
+  [g s & {:keys [undirected?] :or [undirected? false]}]
+  (let [neighbor-fn
+        (if undirected?
+          (fn [n] (union (access (g n)) (parents-of g n)))
+          (fn [n] (access (g n))))]
+    ((fn rec-bfs [explored frontier]
+       (lazy-seq
+        (if (empty? frontier)
+          nil
+          (let [v (peek frontier)
+                neighbors (neighbor-fn v)]
+            (cons v (rec-bfs
+                     (into explored neighbors)
+                     (into (pop frontier) (remove explored neighbors))))))))
+     #{s} (conj (clojure.lang.PersistentQueue/EMPTY) s))))
+
+(defn ^:private tarjan 
+  "Returns the strongly connected components of a graph specified by its nodes
+   and a successor function succs from node to nodes.
+   The used algorithm is Tarjan's one."
+  [nodes succs]
+  (letfn [(sc [env node]
+            ; env is a map from nodes to stack length or nil,
+            ; nil means the node is known to belong to another SCC
+            ; there are two special keys: ::stack for the current stack 
+            ; and ::sccs for the current set of SCCs
+            (if (contains? env node)
+              env
+              (let [stack (::stack env)
+                    n (count stack)
+                    env (assoc env node n ::stack (conj stack node))
+                    env (reduce (fn [env succ]
+                                  (let [env (sc env succ)]
+                                    (assoc env node (min (or (env succ) n) (env node)))))
+                          env (succs node))]
+                (if (= n (env node)) ; no link below us in the stack, call it a SCC
+                  (let [nodes (::stack env)
+                        scc (set (take (- (count nodes) n) nodes))
+                        ; clear all stack lengths for these nodes since this SCC is done
+                        env (reduce #(assoc %1 %2 nil) env scc)]
+                    (assoc env ::stack stack ::sccs (conj (::sccs env) scc)))
+                  env))))]
+    (::sccs (reduce sc {::stack () ::sccs #{}} nodes))))
+
+(defn scc [g]
+  "Returns the strongly connected components of a (dag) graph. Tarjan's alogrithm."
+  (tarjan (keys g) (fn [n] (union (access (g n)) (parents-of g n)))))
+
 ;;------------------------------------------------------------------------
 ;; Node functions
 ;;------------------------------------------------------------------------
@@ -140,4 +210,12 @@
   [g n]
   (empty? (intersection (not-roots g) #{n})))
 
+(defn leaf?
+  "Returns true if the node is a leaf"
+  [g n]
+  (not (empty? (intersection (leaves g) #{n}))))
 
+(defn parent?
+  "Returns true if [k v] is a parent of n in the graph"
+  [[k v] n]
+  (not (empty? (intersection (access v) #{n}))))
