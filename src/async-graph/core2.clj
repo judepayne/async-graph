@@ -4,13 +4,13 @@
               timeout mult tap untap pipeline onto-chan]]
             [async-graph.graph2 :refer
              [normalize kahn-sorted roots edges leaves not-leaves nodes
-              parents-of parent? root? leaf? not-roots]]
+              parents-of parent? root? leaf? not-roots bfs-multi scc]]
             [clojure.set :refer [difference union intersection]]
             [clojure.core.match :refer [match]]
             [clojure.spec :as s]
-            [clojure.core.async.impl.protocols :as async-protocols]))
+            [clojure.core.async.impl.protocols :as async-protocols]
+            [potemkin :refer [def-map-type]]))
 
-(use 'async-graph.coll)
 
 (def default-buffer 10)
 
@@ -21,6 +21,11 @@
 (def f3 (map inc))
 (def f4 (map inc))
 (def f5 (map dec))
+(def f6 (map inc))
+(def f7 (map dec))
+(def f8 (map inc))
+(def f9 (map dec))
+(def f10 (map inc))
 
 (def nd1 [f1 {:chdn #{f2 f3} :buf-or-n 12 :ex-handler identity :label :inc}])
 (def nd2 [f2 {:chdn #{} :buf-or-n 20 :ex-handler identity :label :dec}])
@@ -30,8 +35,24 @@
 ;; f1 -> f2, f3
 ;; f2 -> {}
 ;; f3 -> {}
+
+ (def g10 
+  {f1 {::chdn #{f3 f4} ::buf-or-n 12 ::ex-handler identity}
+   f2 {::chdn #{f4 f5} ::buf-or-n 12 ::ex-handler identity}
+   f3 {::chdn #{f6 f7} ::buf-or-n 12 ::ex-handler identity}
+   f4 {::chdn #{f7 f8 f9} ::buf-or-n 12 ::ex-handler identity}
+   f5 {::chdn #{f9 f10} ::buf-or-n 12 ::ex-handler identity}})
+
+(def g11 
+  {f1 {::chdn #{f3 f4}}
+   f2 {::chdn #{f4 f5}}
+   f3 {::chdn #{f6 f7}}
+   f4 {::chdn #{f7 f8 f9}}
+   f5 {::chdn #{f9 f10}}})
+
 ;; end test data
 
+;; Spec for a graph
 (defn arity
  "Returns the maximum parameter count of each invoke method found by refletion
   on the input instance. The returned value can be then interpreted as the arity
@@ -49,18 +70,24 @@
 
 (s/def ::arity-1 arity-1?)
 
-(s/def ::buf-or-n (s/or :buffer #(instance? async-protocols/Buffer %)
+(s/def ::buf-or-n (s/or :buffer #(satisfies? async-protocols/Buffer %)
                         :n integer?))
 
-(s/def ::chdn (s/and ::set (s/* ::function) (s/* ::arity-1)))
+(s/def ::empty-set (s/and ::set empty?))
+(s/def ::set-of-fns (s/and ::set (s/+ ::function)))
+
+(s/def ::chdn (s/or :empty ::empty-set
+                    :children ::set-of-fns))
 
 (s/def ::ex-handler arity-1?)
 
-(s/def ::graph (s/keys :req [::chdn]
-                       :opt [::buf-or-n ::ex-handler]))
+(s/def ::graph-props (s/keys :req [::chdn]
+                             :opt [::buf-or-n ::ex-handler]))
 
+(s/def ::graph (s/map-of ::function ::graph-props))
+;; End of spec section
 
-(defn make-chan
+(defn ^:private make-chan
   "Makes a core.async channel with/out transducer xf, trying to obtain buffer
    and exception handler from the supplied node properties map."
   ([props]
@@ -73,7 +100,7 @@
           [{:buf-or-n b}] (chan b xf)
           :else (throw (Exception. "need at least buf-or-n to form transducer channel.")))))
 
-(defn enable-node
+(defn ^:private enable-node
   "Creates the :in and :out channels for the node, making a pipeline :parallelism n
    is present, otherwise a single channel if the node is a leaf or a chan-mult pair
    if not. The transducer xf is applied either over the pipeline or channel."
@@ -100,10 +127,10 @@
            (merge props (let [c (make-chan props)]
                           {:in c :out c :mult (mult c)})))))
 
-(defn is-enabled? [props]
+(defn ^:private is-enabled? [props]
   (if (:in props) true false))
 
-(defn is-leaf? [props]
+(defn ^:private is-leaf? [props]
   (if (:mult props) false true))
 
 ;; Leave these TWO for now and see if I need them.
@@ -133,15 +160,63 @@
          (merge pp' {:mult nil}) ;; parent now a leaf
          pp')))))
 
-(defn add-new-node-to-its-parents
+(defn ^:private add-new-node-to-its-parents
   "Updates all parent's of xf in g to have xf as one of their children."
   [g xf props]
   (update-in g (vec (parents-of g xf)) link-parent xf props))
 
-(defn remove-node-from-parents
+(defn ^:private remove-node-from-parents
   "Removes child relationship from all parents of xf in the graph."
   [g xf props]
   (update-in g (vec (parents-of g xf)) unlink-parent xf props))
+
+(defn ^:private recreate-nodes
+  "Creates a seq of [node node-properties] of the specified set of nodes in the graph.
+   The :in, :out and :mult channels in node-properties are new."
+  [g nodes]
+  (map #(vector % (enable-node % (g %))) nodes))
+
+(defn ^:private connect-nodes
+  "Connections each node into its parents in the graph."
+  [g nodes]
+  (doseq [n nodes]
+      (map #(tap (:mult (g %)) (:in (g n))) (parents-of g n))))
+
+(defn ^:private graph-assoc
+  "Associates a node into the graph, merging default-props into v.
+   The existing graph is branched at the point of insertion with k and all child
+   nodes of k being recreated, maximising sharing of nodes."
+  [g k v default-props]
+  (let [affected (bfs-multi g (:chdn v))
+        ops (into {} (cons [k (merge default-props v)] (recreate-nodes g affected)))
+        g' (merge g ops)]
+    (connect-nodes g (reverse affected))
+    g'))
+
+(defn ^:private graph-dissoc
+  "Dissociates a node into the graph.
+   The existing graph is branched at the point of dissocation with all child
+   nodes of k being recreated, maximising sharing of nodes."
+  [g k]
+  (let [affected (bfs-multi g (:chdn (g k)))
+        ops (into {} (recreate-nodes g affected))
+        g' (merge g ops)]
+    (connect-nodes g (reverse affected))
+    g'))
+
+(def-map-type AsyncGraph [graph default-buffer default-ex-handler mta]
+  (get [_ k _]
+       (graph k))
+  (assoc [_ k v]
+         (graph-assoc graph k v {:buf-or-n default-buffer :ex-handler default-ex-handler} mta))
+  (dissoc [_ k]
+         (graph-dissoc graph k {:buf-or-n default-buffer :ex-handler default-ex-handler} mta))
+  (keys [_]
+        (keys graph))
+  (meta [_]
+        mta)
+  (with-meta [_ mta]
+    (AsyncGraph. graph default-buffer default-ex-handler mta)))
 
 (defn ^:private async-graph-impl
   "Makes an async-graph from supplied g (graph) and map of defaults
@@ -159,58 +234,18 @@
                               (:in (get graph (second e)))))        
     graph))
 
-(deftype AsyncGraph [graph default-buffer default-ex-handler])
-
-
-
 (defn async-graph
   ""
   [g & {:keys [buf-or-n ex-handler]
-        :or {:buf-or-n default-buffer}}]
+        :or {buf-or-n default-buffer}}]
+  
   (let [defaults (if ex-handler
                    {:buf-or-n buf-or-n :ex-handler ex-handler}
                    {:buf-or-n buf-or-n})
         g-norm (normalize g)]
-    (if true ;; (s/valid? ::check/graph g-norm)
-      (->AsyncGraph (async-graph-impl g-norm defaults) buf-or-n ex-handler)
-      (throw (ex-info "Invalid input" (s/explain-data ::check/graph g-norm))))))
-;; here's where I got to
-
-
-(defn graph-assoc
-  ""
-  [g k v default-props]
-  )
-
-(defn graph-assoc-inner
-  ""
-  ;; Note: consider doing a transient version of this operation for large graphs.
-  [g k v default-props]
-  (let [props (if (set? v) (merge default-props {:chdn v}) (merge default-props v))
-        g' (assoc g k props)]
-    (println props)
-    (map #(tap (:out %) (:in props)) (parents-of g' k))
-    (if (empty? (:chdn props))
-      g'
-      (reduce
-       (fn [acc cur]
-         (map merge g'
-              (graph-assoc g' cur
-                           (if-let [props' (get g' cur)]
-                             props'
-                             (enable-node cur {:chdn #{}} default-props :leaf? true)))))
-       g'
-       (:chdn props)))))
-
-
-;; algo for assoc k,v:
-;; 1. add node.
-;; 2. tap into parents
-;; 3. for each of children of node:
-;;     (re)assoc into graph.
-;;     if it's a reassoc, use existing properties. dissoc diff children
-;;     if it's a new assoc, default properties from the graph
-;;     stop when leaf
-;; additional:
-;; if v is a set rather than a map and conforms to set of transducers, then
-;; make a props with default props around the chldn.
+    (if (and
+         (s/valid? ::graph g)
+         (if ex-handler (s/valid? ::ex-handler ex-handler) true)
+         (s/valid? ::buf-or-n buf-or-n))
+      1 ;(->AsyncGraph (async-graph-impl g-norm defaults) buf-or-n ex-handler)
+      (throw (ex-info "Invalid input" )))))
