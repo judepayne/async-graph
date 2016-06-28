@@ -2,7 +2,7 @@
   (:require [clojure.test :refer :all]
             [async-graph.graph2 :refer [not-roots nodes roots normalize
                                         leaves not-leaves kahn-sorted edges
-                                        parents-of root? dfs bfs]]))
+                                        parents-of root? dfs bfs bfs-multi scc]]))
 
 (def g
   {7  {:chdn #{11 8} :buf 5}
@@ -11,9 +11,22 @@
    11 {:chdn #{2 9} :buf 8}
    8  {:chdn #{9} :buf 10}})
 
+(def g-disconnected
+  {7  {:chdn #{11} :buf 5}
+   5  {:chdn #{11} :buf 6}
+   3  {:chdn #{10} :buf 7}
+   11 {:chdn #{2 9} :buf 8}})
+
 (def cyclic-g (assoc g 2 {:chdn #{11} :buf 'who-cares}))
 
 (def g-norm (normalize g))
+
+(def g10 (normalize
+          {1 {:chdn #{3 4}}
+           2 {:chdn #{4 5}}
+           3 {:chdn #{6 7}}
+           4 {:chdn #{7 8 9}}
+           5 {:chdn #{9 10}}}))
 
 (defn find-in
   "go to x in ys otherwise return nil"
@@ -79,4 +92,12 @@
   (testing "dfs undirected"
     (is (= [5 11 9 8 3 10 2 7] (dfs g 5 :undirected? true))))
   (testing "bfs undirected"
-    (is (= '(5 11 7 2 9 8 3 10) (bfs g 5 :undirected? true)))))
+    (is (= '(5 11 7 2 9 8 3 10) (bfs g 5 :undirected? true))))
+  (testing "bfs-multi"
+    (is (= '(2 4 5 7 9 8 10) (bfs-multi g10 [2 5])))))
+
+(deftest strongly-connected-components
+  (testing "connected graph"
+    (is (= #{#{7 3 2 11 9 5 10 8}} (scc g))))
+  (testing "disconnected graph"
+    (is (= #{#{3 10} #{7 2 11 9 5}} (scc g-disconnected)))))
