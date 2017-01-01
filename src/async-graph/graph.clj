@@ -157,7 +157,7 @@
 (defn dfs
   "Depth first search on g starting at node s. If :undirected? is set as true,
    will treat the graph as undirected rather than a dag and so will discover all nodes."
-  [g s & {:keys [undirected?] :or [undirected? false]}]
+  [g s & {:keys [undirected?] :or {undirected? false}}]
   (let [neighbor-fn
         (if undirected?
           (fn [n] (union (access (g n)) (parents-of g n)))
@@ -175,7 +175,7 @@
 (defn bfs
   "Breadth first search on g starting at node s. If :undirected? is set as true,
    will treat the graph as undirected rather than a dag and so will discover all nodes."
-  [g s & {:keys [undirected?] :or [undirected? false]}]
+  [g s & {:keys [undirected?] :or {undirected? false}}]
   (let [neighbor-fn
         (if undirected?
           (fn [n] (union (access (g n)) (parents-of g n)))

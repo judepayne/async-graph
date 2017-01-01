@@ -15,43 +15,6 @@
 (def default-buffer 10)
 
 
-;; Some test data during the dev process
-(def f1 (map inc))
-(def f2 (map dec))
-(def f3 (map inc))
-(def f4 (map inc))
-(def f5 (map dec))
-(def f6 (map inc))
-(def f7 (map dec))
-(def f8 (map inc))
-(def f9 (map dec))
-(def f10 (map inc))
-
-(def nd1 [f1 {:chdn #{f2 f3} :buf-or-n 12 :ex-handler identity :label :inc}])
-(def nd2 [f2 {:chdn #{} :buf-or-n 20 :ex-handler identity :label :dec}])
-(def defs {::buf-or-n default-buffer})
-(def g (into {} [nd1 nd2]))
-
-;; f1 -> f2, f3
-;; f2 -> {}
-;; f3 -> {}
-
- (def g10 
-  {f1 {::chdn #{f3 f4} ::buf-or-n 12 ::ex-handler identity}
-   f2 {::chdn #{f4 f5} ::buf-or-n 12 ::ex-handler identity}
-   f3 {::chdn #{f6 f7} ::buf-or-n 12 ::ex-handler identity}
-   f4 {::chdn #{f7 f8 f9} ::buf-or-n 12 ::ex-handler identity}
-   f5 {::chdn #{f9 f10} ::buf-or-n 12 ::ex-handler identity}})
-
-(def g11 
-  {f1 {::chdn #{f3 f4}}
-   f2 {::chdn #{f4 f5}}
-   f3 {::chdn #{f6 f7}}
-   f4 {::chdn #{f7 f8 f9}}
-   f5 {::chdn #{f9 f10}}})
-
-;; end test data
-
 ;; Spec for a graph
 (defn arity
  "Returns the maximum parameter count of each invoke method found by refletion
@@ -247,5 +210,5 @@
          (s/valid? ::graph g)
          (if ex-handler (s/valid? ::ex-handler ex-handler) true)
          (s/valid? ::buf-or-n buf-or-n))
-      1 ;(->AsyncGraph (async-graph-impl g-norm defaults) buf-or-n ex-handler)
+      (->AsyncGraph (async-graph-impl g-norm defaults) buf-or-n ex-handler {})
       (throw (ex-info "Invalid input" )))))

@@ -42,15 +42,6 @@
 
 
 
-(comment
-  "test node creation. these functions will be made private so not directly
-   testable"
-  (clojure.pprint/pprint (enable-node (first nda) (second nda) :leaf? true))
-  (clojure.pprint/pprint (enable-node (first nda) (second nda)))
-  (clojure.pprint/pprint (enable-node (first ndc) (second ndc)))
-  (clojure.pprint/pprint (normalize micro))
-  (clojure.pprint/pprint (async-graph (normalize micro) {:buf-or-n 10}))
-  )
 
 
 
