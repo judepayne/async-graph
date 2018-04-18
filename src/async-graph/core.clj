@@ -7,7 +7,7 @@
               parents-of parent? root? leaf? not-roots bfs-multi scc]]
             [clojure.set :refer [difference union intersection]]
             [clojure.core.match :refer [match]]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [clojure.core.async.impl.protocols :as async-protocols]
             [potemkin :refer [def-map-type]]))
 

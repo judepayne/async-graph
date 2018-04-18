@@ -5,6 +5,10 @@
              [>! <! >!! <!! go chan buffer close! thread alts! alts!!
               timeout mult tap untap pipeline onto-chan]]))
 
+(defn prn-thru
+  ([x] (prn-thru "" x))
+  ([sender x] (println sender ": " x) x))
+
 ;; set up some test data
 (def f1 (map inc))
 (def f2 (map dec))

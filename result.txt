@@ -1,0 +1,19 @@
+      27 text files.
+classified 21 files      19 unique files.                              
+      22 files ignored.
+
+github.com/AlDanial/cloc v 1.72  T=0.15 s (54.2 files/s, 4496.0 lines/s)
+------------------------------------------------------------------------------------
+File                                             blank        comment           code
+------------------------------------------------------------------------------------
+./src/async-graph/core.clj                          32              4            178
+./src/async-graph/graph.clj                         30             27            175
+./test/async-graph/graph_test.clj                   13              0             90
+./test/async-graph/core_test.clj                    19              4             41
+./CHANGELOG.md                                       6              0             18
+./project.clj                                        0              0              9
+./README.md                                          6              0              8
+./doc/intro.md                                       1              0              2
+------------------------------------------------------------------------------------
+SUM:                                               107             35            521
+------------------------------------------------------------------------------------
